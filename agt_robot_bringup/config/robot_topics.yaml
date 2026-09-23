@@ -1,0 +1,21 @@
+schema_version: 1
+ownership:
+  public_launch: agt_robot_bringup/robot_hardware.launch.py
+  hardware_owner: agt_robot_bringup
+  robot_profile: bunker_v1
+  robot_state_publisher_max_nodes: 1
+  bunker_base_max_nodes: 1
+  mid360_max_nodes: 1
+bunker:
+  driver_package: bunker_base
+  measured_odom_topic: /wheel/odom
+  publish_odom_tf: false
+navigation:
+  local_odom_topic: /agt/odometry/local
+  odom_tf_owner: selected_lio_adapter
+mapping:
+  live_driver_mode: mapping_custom
+rules:
+  navigation_launches_start_hardware: false
+  mapping_launches_start_hardware: false
+  hardware_launch_includes_robot_bringup: true
