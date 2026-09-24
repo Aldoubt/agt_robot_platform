@@ -35,8 +35,14 @@ def _validate_profile(context):
     if profile['robot_id'] != name:
         raise RuntimeError(f'robot profile ID mismatch: {name}')
     for key in ('xacro', 'calibration'):
-        candidate = (share / profile['description'][key]).resolve()
-        if not candidate.is_file() or not candidate.is_relative_to(share.resolve()):
+        relative = Path(profile['description'][key])
+        # With colcon --symlink-install, package files legitimately resolve into
+        # src/, outside the install share directory. Validate the profile path
+        # itself before following those installation links.
+        if relative.is_absolute() or '..' in relative.parts:
+            raise RuntimeError(f'robot profile {key} escapes package: {relative}')
+        candidate = share / relative
+        if not candidate.is_file():
             raise RuntimeError(f'robot profile {key} is missing or outside package: {candidate}')
     return []
 
