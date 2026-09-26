@@ -1,0 +1,14 @@
+# Deployment values for yhs_harvesting. Values stay null until verified on the
+# real robot; the loader turns every null that it needs into a BLOCKED reason.
+schema_version: 1
+robot_id: yhs_harvesting
+base:
+  can_port: can0                  # official driver default; bitrate 500000 (TK-mid-ros2 README / rc.local)
+  # Gear sent with every CtrlCmd. README says 4 = D, PDF manual V1.1.1 says
+  # 3 = kinematic control: confirm on the chassis before setting.
+  drive_gear: null
+# The vendor MID360 launch contains Bunker-era hard-coded network IPs.
+# Select a YHS-specific driver mode/config only after measuring host/lidar IPs.
+# No model-specific base->MID360 TF is supplied here.
+navigation_lidar: {}
+arm: {}

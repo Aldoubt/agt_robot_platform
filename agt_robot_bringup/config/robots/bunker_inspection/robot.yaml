@@ -1,0 +1,23 @@
+# Whole-robot combination: Bunker inspection (reference / template robot).
+# Only WHICH devices make up the robot live here. Geometry, frames, extrinsics,
+# footprint and motion limits are owned by agt_robot_description robot profile
+# `robot_profile` and must not be duplicated in this file.
+schema_version: 1
+robot_id: bunker_inspection
+support_status: supported
+description: Bunker + MID360 (LiDAR/IMU) + Autolabor C1 camera gimbal + RTK metadata
+robot_profile: bunker_v1          # agt_robot_description/config/robot_profiles/bunker_v1.yaml
+base:
+  adapter: bunker                 # driver: bunker_base (ROS 2), consumes /mux/cmd_vel
+sensors:
+  navigation_lidar: {model: mid360, installed: true, enabled: true}
+  navigation_imu: {source: mid360_internal}
+  # Metadata/quality only; never moves map->odom. Installed but off by default
+  # (preserves run_field_stack.sh behaviour: enable per run with --rtk).
+  rtk: {model: asensing_ins, installed: true, enabled: false, role: metadata_only}
+payloads:
+  camera_gimbal: {model: autolabor_c1, installed: true, enabled: true}
+  arm: {installed: false, enabled: false}
+mission:
+  task_handlers: [camera.acquire_view]
+devices_file: devices.yaml

@@ -1,0 +1,33 @@
+# Whole-robot combination: YHS TK-mid kiwi harvesting. BLOCKED until every
+# blocker below (and the loader-derived device blockers) is resolved; it never
+# falls back to Bunker. Do not fill in values by guessing.
+schema_version: 1
+robot_id: yhs_harvesting
+support_status: blocked
+blockers:
+  - "robot profile yhs_v1 missing: geometry, footprint, frames, motion limits and sensor extrinsics must be measured"
+  - "YHS MID360 uses internal IMU; inclined mount reported like Bunker, but YHS XYZ/RPY, network IP and gravity/TF remain unmeasured/unverified"
+  - "no YHS-specific validated map package compatible with yhs_v1; site mapping and localization acceptance required"
+  - "YHS driver (official TK-mid-ros2 @6d002bd) + agt_yhs_adapter built but never run against the real chassis: CAN bring-up, units and stop behaviour need a supervised field check"
+description: YHS TK-mid + inclined MID360/internal IMU (YHS mount unverified) + JAKA + Orbbec picking camera
+robot_profile: yhs_v1             # does not exist yet in agt_robot_description
+base:
+  adapter: yhs                    # yhs_can_control (official) + agt_yhs_adapter, consumes /mux/cmd_vel
+sensors:
+  # Confirmed device type, NOT a measured YHS extrinsic or verified network IP.
+  navigation_lidar: {model: mid360, installed: true, enabled: true}
+  navigation_imu: {source: mid360_internal}
+  rtk: {installed: false, enabled: false, role: metadata_only}
+payloads:
+  camera_gimbal: {installed: false, enabled: false}
+  # agt_arm_capability (/arm/pick_kiwi), started via agt_mission_bringup
+  # enable_arm:=true. Installed+enabled => payload_interlock=true: the arm
+  # publishes /agt/payload/drive_permission and the chassis is held unless it
+  # is fresh True (see agt_arm/docs/ARM_DRIVE_INTERLOCK.md).
+  arm: {model: jaka, installed: true, enabled: true}
+  # Orbbec TOF camera used by kiwipickingandmove.py through pyorbbecsdk
+  # (migrated from ROS 1). Owned by the arm picker process, not a ROS driver.
+  picking_camera: {model: orbbec_tof, installed: true, enabled: true}
+mission:
+  task_handlers: [arm.pick_kiwi]
+devices_file: devices.yaml

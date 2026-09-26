@@ -1,0 +1,16 @@
+# Deployment values for bunker_inspection. Single source for the defaults that
+# robot_hardware.launch.py previously hard-coded (values copied unchanged).
+schema_version: 1
+robot_id: bunker_inspection
+base:
+  can_port: can0                  # 500 kbit/s, brought up by agt-bunker-can.service
+navigation_lidar:
+  driver_mode: vendor_launch      # mapping runs override with mid360_driver_mode:=mapping_custom
+camera_gimbal:
+  device_path: /dev/video0
+  # Stop-and-shoot inspection does not need continuous 30 FPS decode.
+  image_width: 1920
+  image_height: 1080
+  fps: 10.0
+  pixel_format: mjpeg2rgb
+  port_name: /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0
