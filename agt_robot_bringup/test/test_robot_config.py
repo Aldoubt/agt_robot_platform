@@ -44,6 +44,18 @@ def test_bunker_defaults_equal_previous_hardware_launch():
     assert r.robot_profile == 'bunker_v1'
     assert r.base_adapter == 'bunker'
     assert r.launch_args == LEGACY_BUNKER
+    assert r.profile['base'] == {
+        'type': 'tracked',
+        'driver': 'bunker_base',
+        'kinematics': 'skid_steer',
+        'command_interface': 'twist',
+        'odom_source': '/wheel/odom',
+        'publish_odom_tf': False,
+        'control_rate_hz': 50,
+        'rotate_in_place': True,
+    }
+    assert r.profile['motion']['max_linear_velocity'] == 0.55
+    assert r.profile['motion']['max_angular_velocity'] == 0.65
     assert r.overrides == {}
     assert r.reserved == {}
     assert r.task_handlers == ['camera.acquire_view']
@@ -97,6 +109,7 @@ def test_yhs_is_blocked_and_never_falls_back():
     assert 'no fallback' in text
     assert any('yhs_v1' in b for b in info.value.blockers)
     assert any('drive_gear' in b for b in info.value.blockers)
+    assert not (PROFILES / 'yhs_v1.yaml').exists()
     # Even if someone flips support_status the missing driver/profile still block.
     with pytest.raises(rc.RobotConfigBlocked):
         resolve(robot_config='yhs_harvesting', robot_profile='bunker_v1')
@@ -116,55 +129,26 @@ def test_yhs_unblocked_status_still_blocked_by_missing_driver(tmp_path):
     assert any('yhs_v1' in b for b in info.value.blockers)
 
 
-def _yhs_unblocked(tmp_path, gear=4):
-    """Test-only: pretend every YHS blocker is resolved (fake profile, fake gear)."""
-    root = tmp_path / 'robots'
-    shutil.copytree(ROBOTS, root)
-    p = root / 'yhs_harvesting' / 'robot.yaml'
-    data = yaml.safe_load(p.read_text())
-    data['support_status'] = 'supported'
-    data.pop('blockers')
-    data['sensors']['navigation_lidar'] = {'model': 'mid360', 'installed': True, 'enabled': True}
-    p.write_text(yaml.safe_dump(data, allow_unicode=True))
-    d = root / 'yhs_harvesting' / 'devices.yaml'
-    dev = yaml.safe_load(d.read_text())
-    dev['base']['drive_gear'] = gear
-    dev['navigation_lidar'] = {'driver_mode': 'vendor_launch'}
-    d.write_text(yaml.safe_dump(dev))
+def test_resolver_rejects_incomplete_ackermann_profile(tmp_path):
     profiles = tmp_path / 'profiles'
     shutil.copytree(PROFILES, profiles)
-    prof = yaml.safe_load((profiles / 'bunker_v1.yaml').read_text())
-    prof['robot_id'] = 'yhs_v1' if 'robot_id' in prof else prof.get('robot_id')
-    for key in ('profile_id', 'id', 'name'):
-        if key in prof:
-            prof[key] = 'yhs_v1'
-    prof['base']['driver'] = 'yhs_can_control'
-    prof.setdefault('capabilities', {})['manipulation'] = True
-    prof['capabilities']['acquire_view'] = False
-    (profiles / 'yhs_v1.yaml').write_text(yaml.safe_dump(prof, allow_unicode=True))
-    return root, profiles
-
-
-def test_yhs_resolves_with_interlock_once_unblocked(tmp_path):
-    root, profiles = _yhs_unblocked(tmp_path)
-    r = rc.resolve(root, profiles, robot_config='yhs_harvesting', description_share=DESC)
-    assert r.base_adapter == 'yhs'
-    assert r.launch_args['enable_yhs_can'] == 'true'
-    assert r.launch_args['enable_bunker_can'] == 'false'
-    assert r.launch_args['yhs_drive_gear'] == '4'
-    assert r.launch_args['yhs_can_port'] == 'can0'
-    assert 'bunker_can_port' not in r.launch_args
-    assert r.payload_interlock is True
-    assert set(r.reserved) == {'arm', 'picking_camera'}
-    with pytest.raises(rc.RobotConfigError, match='enable_bunker_can'):
-        rc.resolve(root, profiles, robot_config='yhs_harvesting', description_share=DESC,
-                   overrides={'enable_bunker_can': 'true'})
-
-
-def test_yhs_invalid_gear_is_error(tmp_path):
-    root, profiles = _yhs_unblocked(tmp_path, gear='D')
-    with pytest.raises(rc.RobotConfigError, match='drive_gear must be an integer'):
-        rc.resolve(root, profiles, robot_config='yhs_harvesting', description_share=DESC)
+    path = profiles / 'bunker_v1.yaml'
+    profile = yaml.safe_load(path.read_text())
+    profile['base'].update({
+        'kinematics': 'ackermann',
+        'rotate_in_place': False,
+        'ackermann': {
+            # Test-only values; wheelbase is intentionally omitted.
+            'steering_angle_min_rad': -0.5,
+            'steering_angle_max_rad': 0.5,
+            'max_steering_rate_radps': 0.7,
+            'minimum_turning_radius_m': 1.8,
+        },
+    })
+    profile['geometry'].update({'width': 0.8, 'length': 1.5, 'safety_margin': 0.05})
+    path.write_text(yaml.safe_dump(profile, allow_unicode=True))
+    with pytest.raises(rc.RobotConfigError, match='schema error'):
+        rc.resolve(ROBOTS, profiles, robot_config='bunker_inspection', description_share=DESC)
 
 
 def test_enable_yhs_can_on_bunker_is_conflict():
@@ -261,22 +245,32 @@ def test_cli_exit_codes():
     assert bad.returncode == 2 and 'conflict' in bad.stderr
 
 
+def _bunker_arm_test_fixture(tmp_path, installed, enabled):
+    """Test-only capability mutation; does not describe a deployed robot."""
+    root = tmp_path / 'robots'
+    shutil.copytree(ROBOTS, root)
+    profiles = tmp_path / 'profiles'
+    shutil.copytree(PROFILES, profiles)
+    robot_path = root / 'bunker_inspection' / 'robot.yaml'
+    robot = yaml.safe_load(robot_path.read_text())
+    robot['payloads']['arm'] = {'model': 'test_fixture', 'installed': installed, 'enabled': enabled}
+    if not installed:
+        robot['mission']['task_handlers'] = []
+    robot_path.write_text(yaml.safe_dump(robot, allow_unicode=True))
+    profile_path = profiles / 'bunker_v1.yaml'
+    profile = yaml.safe_load(profile_path.read_text())
+    profile['capabilities']['manipulation'] = True
+    profile_path.write_text(yaml.safe_dump(profile, allow_unicode=True))
+    return root, profiles
+
+
 def test_installed_but_disabled_arm_still_requires_interlock(tmp_path):
-    root, profiles = _yhs_unblocked(tmp_path)
-    p = root / 'yhs_harvesting' / 'robot.yaml'
-    data = yaml.safe_load(p.read_text())
-    data['payloads']['arm']['enabled'] = False
-    p.write_text(yaml.safe_dump(data, allow_unicode=True))
-    r = rc.resolve(root, profiles, robot_config='yhs_harvesting', description_share=DESC)
+    root, profiles = _bunker_arm_test_fixture(tmp_path, installed=True, enabled=False)
+    r = rc.resolve(root, profiles, robot_config='bunker_inspection', description_share=DESC)
     assert r.payload_interlock is True
 
 
 def test_not_installed_arm_has_no_interlock(tmp_path):
-    root, profiles = _yhs_unblocked(tmp_path)
-    p = root / 'yhs_harvesting' / 'robot.yaml'
-    data = yaml.safe_load(p.read_text())
-    data['payloads']['arm'] = {'installed': False, 'enabled': False}
-    data['mission']['task_handlers'] = []
-    p.write_text(yaml.safe_dump(data, allow_unicode=True))
-    r = rc.resolve(root, profiles, robot_config='yhs_harvesting', description_share=DESC)
+    root, profiles = _bunker_arm_test_fixture(tmp_path, installed=False, enabled=False)
+    r = rc.resolve(root, profiles, robot_config='bunker_inspection', description_share=DESC)
     assert r.payload_interlock is False
