@@ -1,7 +1,10 @@
 # agt_robot_bringup
 
-`robot_hardware.launch.py` owns the physical driver lifecycle and the single
-`robot_state_publisher`. `robot_bringup.launch.py` is a compatibility alias.
+`robot_hardware.launch.py` is the profile-resolved hardware aggregator and
+includes the atomic description, LiDAR, base, RTK, and camera launches that are
+enabled for the selected robot. The `description.launch.py` in
+`agt_robot_description` is the single `robot_state_publisher` owner.
+`robot_bringup.launch.py` is a compatibility alias.
 The selected `robot:=bunker_v1` profile is schema checked before hardware
 starts. Its calibration is loaded from `agt_robot_description` without changing
 any field accepted transform.
@@ -58,7 +61,7 @@ config/robots/
 | `robot_id` | must equal the directory name |
 | `support_status` | `supported` or `blocked`; `blocked` requires `blockers:` (list of reasons) |
 | `robot_profile` | Robot Profile id in agt_robot_description; its `base.driver` must match the adapter |
-| `base.adapter` | `bunker` (available, `bunker_base`) or `yhs` (**missing ROS 2 driver → always blocked**) |
+| `base.adapter` | `bunker` (available, `bunker_base`) or `yhs` (**protocol/kinematics audit incomplete → blocked**) |
 | `sensors.navigation_lidar` | `{model: mid360, installed, enabled}`; only `mid360` has a hardware integration |
 | `sensors.navigation_imu.source` | documentation of the IMU source (`mid360_internal`) |
 | `sensors.rtk` | `{installed, enabled, role: metadata_only}`; RTK never moves `map→odom` |
@@ -136,26 +139,14 @@ Source: `ros2_ws/机械臂/jaka_camera_ws/src/demo/scripts/kiwipickingandmove.py
   drive-permission contract. Still open: a published, fresh joint state; an
   approved per-joint tolerance; default-deny guard/Capability/Mission interlock.
 
-## YHS TK-mid base adapter (R3)
+## YHS TK-mid base adapter
 
-* Driver: official `YUHESEN-Robot/TK-mid-ros2` pinned at
-  `6d002bddec319a9175a7ada9703f9e7bcb2a7d71` (2026-08-10), cloned to
-  `src/drivers/yhs_tk_mid_ros2` (packages `yhs_can_interfaces`, `yhs_can_control`).
-  **No LICENSE file upstream — licence unknown; clarify with YUHESEN before redistribution.**
-* Adapter: `agt_yhs_adapter/yhs_cmd_vel_bridge` — `/mux/cmd_vel` (Twist) →
-  `/yhs/ctrl_cmd` (CtrlCmd) at 50 Hz, zero command when input is older than
-  0.25 s, reverse refused (`allow_reverse:=false`) until the reverse semantics
-  are confirmed, rad/s → deg/s. High levels never see CtrlCmd.
-* Driver topics are pinned: `ctrl_cmd, io_cmd, free_ctrl_cmd, chassis_info_fb`
-  → `/yhs/...`; its integrated odometry → `/wheel/odom` (diagnostics only).
-  The driver broadcasts **no TF**.
-* Units from source: linear m/s (×1000 on the wire), angular deg/s (×100;
-  feedback documented as °/s in manual V1.1.1).
-* **Gear is not guessed**: README says `4 = D`, PDF manual V1.1.1 says
-  `3 = kinematic control`. `devices.yaml base.drive_gear: null` keeps
-  `yhs_harvesting` BLOCKED; the launch also refuses an empty gear.
-* Launch args (managed): `enable_yhs_can`, `yhs_can_port`, `yhs_drive_gear`.
-  `enable_yhs_can:=true` on a Bunker robot (or `enable_bunker_can:=true` on YHS) is an error.
+YHS is **BLOCKED**. Source code and partial documentation are present, but
+the repository evidence conflicts on drive-gear values and command semantics.
+The launch does not start its driver or bridge. Do not infer message units,
+gear selection, steering geometry, or command arbitration from source comments.
+Resolve the protocol and measured kinematics in
+`docs/upgrade/YHS_BASE_PROTOCOL_AUDIT.md` before enabling a YHS profile.
 
 ## Payloads and drive interlock (R3)
 

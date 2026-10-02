@@ -30,8 +30,8 @@ import yaml
 SCHEMA_VERSION = 1
 DEFAULT_LEGACY_PROFILE = 'bunker_v1'
 
-# Base adapters known to the platform.  'available' means a ROS 2 driver is
-# built in this workspace and wired into robot_hardware.launch.py.
+# Base adapters known to the platform.  A driver binary is not enough to mark a
+# base supported: the field command protocol and kinematics must be audited.
 BASE_ADAPTERS = {
     'bunker': {
         'status': 'available',
@@ -39,11 +39,10 @@ BASE_ADAPTERS = {
         'driver_package': 'bunker_base',
     },
     'yhs': {
-        # Official YUHESEN-Robot/TK-mid-ros2 @6d002bd vendored in
-        # src/drivers/yhs_tk_mid_ros2 (package yhs_can_control) plus the
-        # agt_yhs_adapter Twist->CtrlCmd bridge.  Needs devices.yaml
-        # base.can_port and a chassis-confirmed base.drive_gear.
-        'status': 'available',
+        # Source exists, but protocol/gear/kinematics and real chassis semantics
+        # are not confirmed. Keep this adapter fail-closed pending audit.
+        'status': 'blocked',
+        'reason': 'protocol and kinematics audit incomplete',
         'enable_arg': 'enable_yhs_can',
         'driver_package': 'yhs_can_control',
     },

@@ -12,7 +12,7 @@ blockers:
 description: YHS TK-mid + inclined MID360/internal IMU (YHS mount unverified) + JAKA + Orbbec picking camera
 robot_profile: yhs_v1             # does not exist yet in agt_robot_description
 base:
-  adapter: yhs                    # yhs_can_control (official) + agt_yhs_adapter, consumes /mux/cmd_vel
+  adapter: yhs                    # BLOCKED pending the real protocol and kinematics audit
 sensors:
   # Confirmed device type, NOT a measured YHS extrinsic or verified network IP.
   navigation_lidar: {model: mid360, installed: true, enabled: true}

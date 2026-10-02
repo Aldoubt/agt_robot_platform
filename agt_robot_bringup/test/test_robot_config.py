@@ -115,7 +115,7 @@ def test_yhs_is_blocked_and_never_falls_back():
         resolve(robot_config='yhs_harvesting', robot_profile='bunker_v1')
 
 
-def test_yhs_unblocked_status_still_blocked_by_missing_driver(tmp_path):
+def test_yhs_unblocked_robot_yaml_still_blocked_by_protocol_audit(tmp_path):
     root = tmp_path / 'robots'
     shutil.copytree(ROBOTS, root)
     p = root / 'yhs_harvesting' / 'robot.yaml'

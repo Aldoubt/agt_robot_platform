@@ -21,11 +21,15 @@ try:
 except Exception:  # noqa: BLE001
     pytest.skip('agt_robot_bringup not installed/sourced', allow_module_level=True)
 
-DESC = 'agt_robot_description/launch/display.launch.py'
+DESC = 'agt_robot_description/launch/description.launch.py'
 MID = 'livox_ros_driver2/launch_ROS2/msg_MID360_launch.py'
 BUNKER = 'bunker_base/launch/bunker_base.launch.py'
 RTK = 'agt_asensing_driver/launch/asensing.launch.py'
 CAM = 'autolabor_c1_bringup/launch/autolabor_c1.launch.py'
+LIDAR_ATOMIC = 'agt_robot_bringup/launch/lidar.launch.py'
+BASE_ATOMIC = 'agt_robot_bringup/launch/base.launch.py'
+RTK_ATOMIC = 'agt_robot_bringup/launch/rtk.launch.py'
+CAM_ATOMIC = 'agt_robot_bringup/launch/camera.launch.py'
 
 
 def run(**args):
@@ -35,19 +39,19 @@ def run(**args):
 def test_direct_default_is_bunker_inspection_yaml():
     r = run()
     assert r['ok'], r['error']
-    assert r['includes'] == [DESC, MID, BUNKER, CAM]
+    assert r['includes'] == [DESC, LIDAR_ATOMIC, BASE_ATOMIC, CAM_ATOMIC]
 
 
 def test_run_field_stack_navigation_legacy_args():
     # exactly what run_field_stack.sh passes for --mode navigation without --robot-config
     r = run(robot='bunker_v1', enable_camera_gimbal='false')
     assert r['ok'], r['error']
-    assert r['includes'] == [DESC, MID, BUNKER]
+    assert r['includes'] == [DESC, LIDAR_ATOMIC, BASE_ATOMIC]
 
 
 def test_run_field_stack_inspection_rtk_args():
     r = run(robot='bunker_v1', enable_camera_gimbal='true', enable_rtk='true')
-    assert r['includes'] == [DESC, MID, BUNKER, RTK, CAM]
+    assert r['includes'] == [DESC, LIDAR_ATOMIC, BASE_ATOMIC, RTK_ATOMIC, CAM_ATOMIC]
 
 
 def test_mapping_live_launch_args():
@@ -55,7 +59,7 @@ def test_mapping_live_launch_args():
             mid360_driver_mode='mapping_custom', mapping_livox_config='/etc/hostname',
             enable_bunker_can='false', enable_rtk='false', enable_camera_gimbal='false')
     assert r['ok'], r['error']
-    assert r['includes'] == [] and r['nodes'] == ['livox_ros_driver2']
+    assert r['includes'] == [LIDAR_ATOMIC] and r['nodes'] == []
 
 
 def test_yhs_blocked():
