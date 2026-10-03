@@ -81,8 +81,44 @@ def component_actions(context, component):
             }])]
 
     if component == 'base':
-        if args['enable_yhs_can'] == 'true' or resolved.base_adapter == 'yhs':
-            raise RuntimeError('YHS base startup is BLOCKED pending protocol and kinematics audit')
+        if resolved.base_adapter == 'tracked':
+            if args['enable_tracked_driver'] != 'true':
+                raise RuntimeError('custom tracked base driver disabled')
+            driver = resolved.base_config['driver']
+            return [include(driver['package'], driver['launch_file'],
+                            {k: robot_config._launch_text(v) for k,v in driver['arguments'].items()})]
+        if resolved.base_adapter == 'yhs':
+            if args['enable_yhs_can'] != 'true':
+                raise RuntimeError('YHS base driver disabled')
+            base = resolved.base_config
+            protocol = base['protocol']
+            profile = resolved.profile
+            return [Node(package='yhs_can_control', executable='yhs_can_control_node',
+                         name='yhs_can_control_node', output='screen',
+                         parameters=[{'use_sim_time': use_sim_time.lower() == 'true',
+                                      'can_name': args['yhs_can_port'],
+                                      'ultrasonic_number': base.get('ultrasonic_number', [])}],
+                         remappings=[('ctrl_cmd','/yhs/ctrl_cmd'),('odom',base['odom_topic']),
+                                     ('chassis_info_fb','/yhs/chassis_info_fb'),
+                                     ('ctrl_feedback_source','/yhs/ctrl_feedback_source'),
+                                     ('io_feedback_source','/yhs/io_feedback_source'),
+                                     ('bms_flag_feedback_source','/yhs/bms_flag_feedback_source'),
+                                     ('io_cmd','/yhs/io_cmd'),('free_ctrl_cmd','/yhs/free_ctrl_cmd')]),
+                    Node(package='agt_yhs_adapter', executable='yhs_cmd_vel_bridge',
+                         name='agt_yhs_cmd_vel_bridge', output='screen', parameters=[{
+                             'use_sim_time': use_sim_time.lower() == 'true',
+                             'field_verified': True, 'robot_profile': resolved.robot_profile,
+                             'input_topic': base['command_topic'], 'output_topic':'/yhs/ctrl_cmd',
+                             'base_state_topic':base['state_topic'], 'drive_gear':base['drive_gear'],
+                             'angular_semantics':protocol['angular_semantics'],
+                             'angular_unit':protocol['angular_unit'], 'linear_unit':protocol['linear_unit'],
+                             'allow_reverse':protocol.get('allow_reverse',False),
+                             'reverse_semantics':protocol.get('reverse_semantics',''),
+                             'manual_priority_verified':True, 'hardware_watchdog_verified':True,
+                             'max_forward_mps':profile['motion']['max_linear_velocity'],
+                             'max_reverse_mps':profile['motion'].get('max_reverse_velocity',0.0),
+                             'max_angular_rps':profile['motion']['max_angular_velocity'],
+                             'publish_rate_hz':50.0}])]
         if args['enable_bunker_can'] != 'true' or resolved.base_adapter != 'bunker':
             raise RuntimeError('base.launch requires an enabled, supported Bunker base profile')
         return [include('bunker_base', 'bunker_base.launch.py', {
@@ -139,15 +175,14 @@ def aggregator_actions(context, sensors_only=False):
     if not sensors_only and LaunchConfiguration('enable_robot_description').perform(context).lower() == 'true':
         description_share = Path(get_package_share_directory('agt_robot_description'))
         calibration = LaunchConfiguration('robot_description_calibration_file').perform(context)
-        calibration = calibration or str(
-            description_share / 'config' / 'field_acceptance.yaml')
+        calibration = calibration or str(description_share / resolved.profile['description']['calibration'])
         actions.append(include('agt_robot_description', 'description.launch.py', {
             'robot': resolved.robot_profile,
             'calibration_file': calibration,
         }))
     if args['enable_mid360'] == 'true':
         actions.append(include('agt_robot_bringup', 'lidar.launch.py', values))
-    if not sensors_only and (args['enable_bunker_can'] == 'true' or args['enable_yhs_can'] == 'true'):
+    if not sensors_only and (args['enable_bunker_can'] == 'true' or args['enable_yhs_can'] == 'true' or args['enable_tracked_driver'] == 'true'):
         actions.append(include('agt_robot_bringup', 'base.launch.py', values))
     if args['enable_rtk'] == 'true':
         actions.append(include('agt_robot_bringup', 'rtk.launch.py', values))

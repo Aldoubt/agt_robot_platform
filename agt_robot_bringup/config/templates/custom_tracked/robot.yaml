@@ -1,0 +1,17 @@
+# Copy into config/robots/<your_robot_id>/ after supplying measured profile.
+schema_version: 1
+robot_id: custom_tracked
+support_status: blocked
+blockers:
+  - measured Robot Profile, sensor extrinsics, permission feedback and driver protocol are required
+description: Custom tracked chassis configuration template
+robot_profile: custom_tracked_v1
+base: {adapter: tracked}
+sensors:
+  navigation_lidar: {model: mid360, installed: true, enabled: true}
+  navigation_imu: {source: mid360_internal}
+  rtk: {installed: false, enabled: false, role: metadata_only}
+payloads:
+  camera_gimbal: {installed: false, enabled: false}
+mission: {task_handlers: []}
+devices_file: devices.yaml

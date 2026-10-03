@@ -1,0 +1,28 @@
+schema_version: 1
+robot_id: custom_tracked
+base:
+  field_verified: false
+  command_owner: agt_base_runtime/tracked_twist_adapter
+  control_rate_hz: 50
+  publish_odom_tf: false
+  command_topic: null             # dedicated downstream SI Twist topic
+  odom_topic: null                # actual measured odom topic, frames must match profile
+  state_topic: /agt/base/state
+  driver:
+    package: null
+    launch_file: null
+    arguments: {}                # explicit verified driver arguments including no TF and 50 Hz
+    argument_bindings:
+      command_topic: null         # name of actual launch argument in arguments
+      odom_topic: null
+      publish_odom_tf: null
+      control_rate_hz: null
+    command_message_type: geometry_msgs/msg/Twist
+    linear_unit: m_per_sec
+    angular_semantics: yaw_rate
+    angular_unit: rad_per_sec
+    manual_priority_verified: false
+    hardware_watchdog_verified: false
+navigation_lidar:
+  driver_mode: mapping_custom
+arm: {}

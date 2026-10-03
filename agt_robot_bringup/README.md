@@ -61,7 +61,7 @@ config/robots/
 | `robot_id` | must equal the directory name |
 | `support_status` | `supported` or `blocked`; `blocked` requires `blockers:` (list of reasons) |
 | `robot_profile` | Robot Profile id in agt_robot_description; its `base.driver` must match the adapter |
-| `base.adapter` | `bunker` (available, `bunker_base`) or `yhs` (**protocol/kinematics audit incomplete → blocked**) |
+| `base.adapter` | `bunker` (baseline), `yhs` or `tracked` (require explicitly verified driver/protocol and measured Robot Profile) |
 | `sensors.navigation_lidar` | `{model: mid360, installed, enabled}`; only `mid360` has a hardware integration |
 | `sensors.navigation_imu.source` | documentation of the IMU source (`mid360_internal`) |
 | `sensors.rtk` | `{installed, enabled, role: metadata_only}`; RTK never moves `map→odom` |
@@ -141,12 +141,12 @@ Source: `ros2_ws/机械臂/jaka_camera_ws/src/demo/scripts/kiwipickingandmove.py
 
 ## YHS TK-mid base adapter
 
-YHS is **BLOCKED**. Source code and partial documentation are present, but
-the repository evidence conflicts on drive-gear values and command semantics.
-The launch does not start its driver or bridge. Do not infer message units,
-gear selection, steering geometry, or command arbitration from source comments.
-Resolve the protocol and measured kinematics in
-`docs/upgrade/YHS_BASE_PROTOCOL_AUDIT.md` before enabling a YHS profile.
+The shipped YHS combination remains **BLOCKED** pending real drive-gear,
+units, permission, geometry and sensor calibration evidence. The loader now
+accepts a fully verified YHS tracked contract or custom `tracked` driver
+contract; changing the status flag alone cannot enable it. See
+[TRACKED_DRIVER_CONTRACT.md](config/templates/TRACKED_DRIVER_CONTRACT.md)
+for the standard SI boundary, independent source freshness and templates.
 
 ## Payloads and drive interlock (R3)
 

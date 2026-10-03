@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -39,13 +40,13 @@ BASE_ADAPTERS = {
         'driver_package': 'bunker_base',
     },
     'yhs': {
-        # Source exists, but protocol/gear/kinematics and real chassis semantics
-        # are not confirmed. Keep this adapter fail-closed pending audit.
-        'status': 'blocked',
-        'reason': 'protocol and kinematics audit incomplete',
+        # Actual deployments require an explicit measured protocol contract.
+        'status': 'conditional',
         'enable_arg': 'enable_yhs_can',
         'driver_package': 'yhs_can_control',
     },
+    'tracked': {'status': 'conditional', 'enable_arg': 'enable_tracked_driver',
+                'driver_package': None},
 }
 
 # Hardware-launch payloads: config key -> launch enable argument.
@@ -67,6 +68,7 @@ MANAGED_ARGS = {
     'enable_bunker_can': ('derived', 'base.adapter == bunker'),
     'bunker_can_port': ('devices', 'base.can_port'),
     'enable_yhs_can': ('derived', 'base.adapter == yhs'),
+    'enable_tracked_driver': ('derived', 'base.adapter == tracked'),
     'yhs_can_port': ('devices', 'base.can_port'),
     'yhs_drive_gear': ('devices', 'base.drive_gear'),
     'enable_rtk': ('robot', 'sensors.rtk.enabled'),
@@ -78,7 +80,7 @@ MANAGED_ARGS = {
     'camera_pixel_format': ('devices', 'camera_gimbal.pixel_format'),
     'gimbal_port_name': ('devices', 'camera_gimbal.port_name'),
 }
-BOOL_ARGS = {'enable_mid360', 'enable_bunker_can', 'enable_yhs_can', 'enable_rtk',
+BOOL_ARGS = {'enable_mid360', 'enable_bunker_can', 'enable_yhs_can', 'enable_tracked_driver', 'enable_rtk',
              'enable_camera_gimbal'}
 
 
@@ -109,6 +111,7 @@ class ResolvedRobot:
     profile: dict = field(default_factory=dict)
     task_handlers: list = field(default_factory=list)
     payload_interlock: bool = False
+    base_config: dict = field(default_factory=dict)
 
     def summary(self):
         return {
@@ -121,6 +124,7 @@ class ResolvedRobot:
             'reserved_payloads': dict(self.reserved),
             'task_handlers': list(self.task_handlers),
             'payload_interlock': bool(self.payload_interlock),
+            'base_contract': dict(self.base_config),
         }
 
 
@@ -287,6 +291,7 @@ def _defaults_from_config(robot, devices):
         'enable_camera_gimbal': _as_bool(cam.get('enabled', False), 'camera_gimbal.enabled'),
         'enable_bunker_can': adapter == 'bunker',
         'enable_yhs_can': adapter == 'yhs',
+        'enable_tracked_driver': adapter == 'tracked',
     }
     if values['enable_mid360']:
         if lidar.get('model') != 'mid360':
@@ -309,6 +314,78 @@ def _defaults_from_config(robot, devices):
 def _installed(robot, section, name):
     item = (robot.get(section) or {}).get(name) or {}
     return bool(item) and _as_bool(item.get('installed', False), f'{section}.{name}.installed')
+
+
+def validate_tracked_contract(base, adapter, profile=None):
+    """Return missing measured evidence; never guess vendor control semantics."""
+    missing = []
+    if base.get('field_verified') is not True:
+        missing.append('devices.yaml base.field_verified must be true after supervised verification')
+    if base.get('command_owner') != 'agt_base_runtime/tracked_twist_adapter':
+        missing.append('base.command_owner must be agt_base_runtime/tracked_twist_adapter')
+    if base.get('publish_odom_tf') is not False or base.get('control_rate_hz') != 50:
+        missing.append('base requires publish_odom_tf=false and control_rate_hz=50')
+    for name in ('command_topic','odom_topic','state_topic'):
+        value = base.get(name)
+        if not isinstance(value,str) or not value.startswith('/') or any(c.isspace() for c in value):
+            missing.append(f'base.{name} must be an explicit absolute ROS topic')
+    if base.get('command_topic') in ('/cmd_vel','/cmd_vel_nav','/agt/base/cmd_vel','/mux/cmd_vel'):
+        missing.append('tracked driver command_topic must be a dedicated downstream endpoint')
+    driver = base.get('driver') or {}
+    if not isinstance(driver,dict) or not driver.get('package'):
+        missing.append('base.driver.package is required')
+    else:
+        if adapter == 'yhs' and driver['package'] != 'yhs_can_control':
+            missing.append('YHS protocol bridge requires the audited yhs_can_control driver')
+        if adapter == 'tracked':
+            launch = driver.get('launch_file')
+            if not isinstance(launch,str) or not launch.endswith('.py') or Path(launch).is_absolute() or '..' in Path(launch).parts:
+                missing.append('custom tracked base.driver.launch_file must be a relative file')
+            if not isinstance(driver.get('arguments'),dict):
+                missing.append('custom tracked base.driver.arguments must explicitly describe the verified launch')
+            arguments = driver.get('arguments') if isinstance(driver.get('arguments'),dict) else {}
+            bindings = driver.get('argument_bindings') or {}
+            for field in ('command_topic','odom_topic','publish_odom_tf','control_rate_hz'):
+                argument = bindings.get(field) if isinstance(bindings,dict) else None
+                if (not isinstance(argument,str) or argument not in arguments
+                        or _launch_text(arguments[argument]) != _launch_text(base.get(field))):
+                    missing.append(f'custom tracked driver argument_bindings.{field} must bind the actual verified launch value')
+            if driver.get('manual_priority_verified') is not True or driver.get('hardware_watchdog_verified') is not True:
+                missing.append('custom tracked driver requires verified manual priority and command-loss watchdog')
+            if driver.get('command_message_type') != 'geometry_msgs/msg/Twist':
+                missing.append('custom tracked driver must consume geometry_msgs/msg/Twist in SI units')
+            if driver.get('linear_unit') != 'm_per_sec' or driver.get('angular_semantics') != 'yaw_rate' or driver.get('angular_unit') != 'rad_per_sec':
+                missing.append('custom tracked driver Twist semantics require m_per_sec and yaw_rate rad_per_sec')
+    if adapter == 'yhs':
+        protocol = base.get('protocol') or {}
+        gear = base.get('drive_gear')
+        if isinstance(gear,bool) or not isinstance(gear,int) or not 0 <= gear <= 15:
+            missing.append('YHS base.drive_gear must be chassis-confirmed 0..15')
+        if (protocol.get('field_verified') is not True or protocol.get('angular_semantics') != 'yaw_rate'
+                or protocol.get('angular_unit') not in ('deg_per_sec','rad_per_sec')
+                or protocol.get('linear_unit') != 'm_per_sec' or not protocol.get('source_evidence')):
+            missing.append('YHS protocol needs verified yaw_rate, actual angular units, m_per_sec and source_evidence')
+        if protocol.get('manual_priority_verified') is not True or protocol.get('hardware_watchdog_verified') is not True:
+            missing.append('YHS protocol needs verified physical manual priority and command-loss watchdog')
+        if protocol.get('allow_reverse') is True and protocol.get('reverse_semantics') != 'signed_speed_same_gear':
+            missing.append('YHS reverse requires verified signed_speed_same_gear semantics')
+    if profile is not None:
+        if profile['base'].get('kinematics') not in ('skid_steer','differential'):
+            missing.append('tracked base requires skid_steer|differential kinematics')
+        if profile['base'].get('publish_odom_tf') is not False or profile['base'].get('control_rate_hz') != 50:
+            missing.append('tracked robot profile requires no odom TF and 50 Hz')
+        if profile['base'].get('odom_source') != base.get('odom_topic'):
+            missing.append('profile base.odom_source must match driver odom_topic')
+        if profile['base'].get('command_interface') != 'twist':
+            missing.append('tracked profile command_interface must be twist')
+        if adapter == 'yhs' and profile['frames'].get('base') != 'base_link':
+            missing.append('audited YHS vendor odometry is base_link; profile frame must match without relabeling')
+        for section,names in (('geometry',('width','length')),('motion',('max_linear_velocity','max_angular_velocity'))):
+            for name in names:
+                v = profile.get(section,{}).get(name)
+                if isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) or v <= 0:
+                    missing.append(f'tracked profile {section}.{name} must be a positive measured number')
+    return missing
 
 
 def resolve(robots_root, profile_dir, robot_config='', robot_profile='', overrides=None,
@@ -344,7 +421,7 @@ def resolve(robots_root, profile_dir, robot_config='', robot_profile='', overrid
     adapter = _get(robot, 'base.adapter')
     if adapter not in BASE_ADAPTERS:
         raise RobotConfigError(f'{robot_id}: unknown base.adapter {adapter!r}')
-    if BASE_ADAPTERS[adapter]['status'] != 'available':
+    if BASE_ADAPTERS[adapter]['status'] not in ('available','conditional'):
         blockers.append(f"base adapter {adapter}: {BASE_ADAPTERS[adapter]['reason']}")
     if adapter == 'yhs':
         base_dev = devices.get('base') or {}
@@ -357,6 +434,8 @@ def resolve(robots_root, profile_dir, robot_config='', robot_profile='', overrid
                             'real chassis/DBC before setting it')
         elif isinstance(gear, bool) or not isinstance(gear, int) or not 0 <= gear <= 15:
             raise RobotConfigError(f'{robot_id}: base.drive_gear must be an integer 0..15')
+    if adapter in ('yhs','tracked'):
+        blockers.extend(validate_tracked_contract(devices.get('base') or {}, adapter))
     profile_id = robot.get('robot_profile')
     if not profile_id:
         raise RobotConfigError(f'{robot_id}: robot_profile is required')
@@ -375,11 +454,16 @@ def resolve(robots_root, profile_dir, robot_config='', robot_profile='', overrid
             f'robot_profile {profile_id}')
 
     profile = load_profile(profile_id, profile_dir, description_share)
-    expected_driver = BASE_ADAPTERS[adapter]['driver_package']
+    base_config = devices.get('base') or {}
+    expected_driver = BASE_ADAPTERS[adapter]['driver_package'] or base_config.get('driver',{}).get('package')
     if profile['base'].get('driver') != expected_driver:
         raise RobotConfigError(
             f"{robot_id}: profile base.driver {profile['base'].get('driver')!r} does not match "
             f"adapter {adapter} ({expected_driver})")
+    if adapter in ('yhs','tracked'):
+        measured_blockers = validate_tracked_contract(base_config,adapter,profile)
+        if measured_blockers:
+            raise RobotConfigBlocked(robot_id,measured_blockers)
     caps = profile.get('capabilities', {})
     payloads = robot.get('payloads') or {}
     if _installed(robot, 'payloads', 'camera_gimbal') and not caps.get('acquire_view'):
@@ -402,6 +486,8 @@ def resolve(robots_root, profile_dir, robot_config='', robot_profile='', overrid
                     raise RobotConfigError(f'conflict: enable_bunker_can:=true on {adapter} robot {robot_id}')
                 if name == 'enable_yhs_can' and adapter != 'yhs':
                     raise RobotConfigError(f'conflict: enable_yhs_can:=true on {adapter} robot {robot_id}')
+                if name == 'enable_tracked_driver' and adapter != 'tracked':
+                    raise RobotConfigError(f'conflict: enable_tracked_driver:=true on {adapter} robot {robot_id}')
                 if name == 'enable_camera_gimbal' and not _installed(robot, 'payloads', 'camera_gimbal'):
                     raise RobotConfigError(f'conflict: camera_gimbal not installed on {robot_id}')
                 if name == 'enable_rtk' and not _installed(robot, 'sensors', 'rtk'):
@@ -411,6 +497,8 @@ def resolve(robots_root, profile_dir, robot_config='', robot_profile='', overrid
             value = _launch_text(want)
         elif name not in launch_args:
             raise RobotConfigError(f'{name} is not applicable to robot config {robot_id}')
+        if adapter == 'yhs' and name == 'yhs_drive_gear' and value != launch_args.get(name):
+            raise RobotConfigError('YHS drive_gear override would change the verified protocol; edit and reverify devices.yaml')
         if launch_args.get(name) != value:
             applied[name] = {'config': launch_args.get(name), 'override': value}
         launch_args[name] = value
@@ -430,7 +518,7 @@ def resolve(robots_root, profile_dir, robot_config='', robot_profile='', overrid
     return ResolvedRobot(robot_id=robot_id, robot_profile=profile_id, config_dir=config_dir,
                          base_adapter=adapter, launch_args=launch_args, overrides=applied,
                          reserved=reserved, profile=profile, task_handlers=handlers,
-                         payload_interlock=interlock)
+                         payload_interlock=interlock, base_config=dict(base_config))
 
 
 # ---------------------------------------------------------------------- CLI

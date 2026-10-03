@@ -3,10 +3,28 @@
 schema_version: 1
 robot_id: yhs_harvesting
 base:
+  field_verified: false
+  command_owner: agt_base_runtime/tracked_twist_adapter
+  publish_odom_tf: false
+  control_rate_hz: 50
+  command_topic: /agt/yhs/cmd_vel
+  odom_topic: /wheel/odom
+  state_topic: /agt/base/state
+  driver: {package: yhs_can_control}
   can_port: can0                  # official driver default; bitrate 500000 (TK-mid-ros2 README / rc.local)
   # Gear sent with every CtrlCmd. README says 4 = D, PDF manual V1.1.1 says
   # 3 = kinematic control: confirm on the chassis before setting.
   drive_gear: null
+  protocol:
+    field_verified: false
+    angular_semantics: null       # user confirms tracked; actual CtrlCmd still needs yaw-rate evidence
+    angular_unit: null            # deg_per_sec|rad_per_sec after CAN/manual verification
+    linear_unit: null             # m_per_sec after verification
+    allow_reverse: false
+    reverse_semantics: null       # signed_speed_same_gear only if actually verified
+    manual_priority_verified: false
+    hardware_watchdog_verified: false
+    source_evidence: null
 # The vendor MID360 launch contains Bunker-era hard-coded network IPs.
 # Select a YHS-specific driver mode/config only after measuring host/lidar IPs.
 # No model-specific base->MID360 TF is supplied here.

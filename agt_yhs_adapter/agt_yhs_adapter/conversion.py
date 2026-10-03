@@ -25,8 +25,11 @@ def validate_gear(value, name='drive_gear'):
     return value
 
 
-def twist_to_ctrl(linear_mps, angular_radps, drive_gear, allow_reverse=False):
-    """Return (gear, linear_mps, angular_degps). Non-finite input -> stop."""
+def twist_to_ctrl(linear_mps, angular_radps, drive_gear, allow_reverse=False, angular_unit='deg_per_sec'):
+    """Return measured vendor units; the default retains the legacy pure API.
+
+    The live bridge has no unit default and requires field verification.
+    """
     validate_gear(drive_gear)
     if not (math.isfinite(linear_mps) and math.isfinite(angular_radps)):
         return drive_gear, 0.0, 0.0
@@ -35,7 +38,9 @@ def twist_to_ctrl(linear_mps, angular_radps, drive_gear, allow_reverse=False):
         # Reverse semantics (negative speed in drive gear vs. R gear) are not
         # confirmed for this chassis: refuse reverse instead of guessing.
         linear = 0.0
-    angular_deg = math.degrees(float(angular_radps))
+    if angular_unit not in ('deg_per_sec','rad_per_sec'):
+        raise ConversionError('angular_unit must be measured deg_per_sec|rad_per_sec')
+    angular_deg = math.degrees(float(angular_radps)) if angular_unit == 'deg_per_sec' else float(angular_radps)
     lim_lin = INT16_MAX / 1000.0
     lim_ang = INT16_MAX / 100.0
     linear = max(-lim_lin, min(lim_lin, linear))
